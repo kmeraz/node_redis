@@ -58,6 +58,12 @@ describe('The node_redis client', function () {
                                 assert.strictEqual(client2.options[elem], client.options[elem]);
                             }
                         }
+                        client2.on('error', function (err) {
+                            assert.strictEqual(err.message, 'Connection forcefully ended and command aborted. It might have been processed.');
+                            assert.strictEqual(err.command, 'SELECT');
+                            assert(err instanceof Error);
+                            assert.strictEqual(err.name, 'AbortError');
+                        });
                         client2.on('ready', function () {
                             client2.end(true);
                             done();
@@ -340,7 +346,8 @@ describe('The node_redis client', function () {
                             }
                         }, 20);
                         var cb = function (err, res) {
-                            assert(/The connection has already been closed/.test(err.message));
+                            assert(/Connection forcefully ended|The connection is already closed./.test(err.message));
+                            assert.strictEqual(err.code, 'NR_CLOSED');
                             end();
                         };
                         for (var i = 0; i < 20; i++) {
@@ -361,7 +368,7 @@ describe('The node_redis client', function () {
                             done();
                         }, 20);
                         var cb = function (err, res) {
-                            assert(/The connection has already been closed./.test(err.message));
+                            assert(/Connection forcefully ended|The connection is already closed./.test(err.message));
                             end();
                         };
                         for (var i = 0; i < 20; i++) {
@@ -371,6 +378,41 @@ describe('The node_redis client', function () {
                             }
                             client.set('foo', 'bar', cb);
                         }
+                    });
+
+                    it('emits an aggregate error if no callback was present for multiple commands', function (done) {
+                        client.set('foo', 'bar');
+                        client.set('baz', 'hello world');
+                        client.on('error', function (err) {
+                            assert(err instanceof Error);
+                            assert(err instanceof redis.AbortError);
+                            assert(err instanceof redis.AggregateError);
+                            assert.strictEqual(err.name, 'AggregateError');
+                            assert.strictEqual(err.errors.length, 2);
+                            assert.strictEqual(err.message, 'Connection forcefully ended and commands aborted.');
+                            assert.strictEqual(err.code, 'NR_CLOSED');
+                            assert.strictEqual(err.errors[0].message, 'Connection forcefully ended and command aborted. It might have been processed.');
+                            assert.strictEqual(err.errors[0].command, 'SET');
+                            assert.strictEqual(err.errors[0].code, 'NR_CLOSED');
+                            assert.deepEqual(err.errors[0].args, ['foo', 'bar']);
+                            done();
+                        });
+                        client.end(true);
+                    });
+
+                    it('emits an abort error if no callback was present for a single commands', function (done) {
+                        client.set('foo', 'bar');
+                        client.on('error', function (err) {
+                            assert(err instanceof Error);
+                            assert(err instanceof redis.AbortError);
+                            assert(!(err instanceof redis.AggregateError));
+                            assert.strictEqual(err.message, 'Connection forcefully ended and command aborted. It might have been processed.');
+                            assert.strictEqual(err.command, 'SET');
+                            assert.strictEqual(err.code, 'NR_CLOSED');
+                            assert.deepEqual(err.args, ['foo', 'bar']);
+                            done();
+                        });
+                        client.end(true);
                     });
 
                 });
@@ -385,7 +427,7 @@ describe('The node_redis client', function () {
                         client = redis.createClient();
                         client.quit(function () {
                             client.get('foo', function (err, res) {
-                                assert.strictEqual(err.message, 'Stream connection ended and running command aborted. It might have been processed.');
+                                assert.strictEqual(err.message, 'Stream connection ended and command aborted. It might have been processed.');
                                 assert.strictEqual(client.offline_queue.length, 0);
                                 done();
                             });
@@ -398,7 +440,7 @@ describe('The node_redis client', function () {
                         client.quit();
                         setTimeout(function () {
                             client.get('foo', function (err, res) {
-                                assert.strictEqual(err.message, 'GET can\'t be processed. The connection has already been closed.');
+                                assert.strictEqual(err.message, 'GET can\'t be processed. The connection is already closed.');
                                 assert.strictEqual(err.command, 'GET');
                                 assert.strictEqual(client.offline_queue.length, 0);
                                 done();
@@ -410,7 +452,7 @@ describe('The node_redis client', function () {
                         if (helper.redisProcess().spawnFailed()) this.skip();
                         client.quit();
                         client.on('error', function (err) {
-                            assert.strictEqual(err.message, 'SET can\'t be processed. The connection has already been closed.');
+                            assert.strictEqual(err.message, 'SET can\'t be processed. The connection is already closed.');
                             assert.strictEqual(err.command, 'SET');
                             assert.strictEqual(client.offline_queue_length, 0);
                             done();
@@ -542,7 +584,7 @@ describe('The node_redis client', function () {
                             });
 
                             domain.on('error', function (err) {
-                                assert.strictEqual(err.message, 'SET can\'t be processed. The connection has already been closed.');
+                                assert.strictEqual(err.message, 'SET can\'t be processed. The connection is already closed.');
                                 domain.exit();
                                 done();
                             });
@@ -919,8 +961,11 @@ describe('The node_redis client', function () {
 
                 it('should gracefully recover and only fail on the already send commands', function (done) {
                     client = redis.createClient.apply(null, args);
+                    var error;
                     client.on('error', function (err) {
-                        assert.strictEqual(err.message, 'Protocol error, got "a" as reply type byte');
+                        assert.strictEqual(err.message, 'Protocol error, got "a" as reply type byte. Please report this.');
+                        assert.strictEqual(err, error);
+                        assert(err instanceof redis.ReplyError);
                         // After the hard failure work properly again. The set should have been processed properly too
                         client.get('foo', function (err, res) {
                             assert.strictEqual(res, 'bar');
@@ -929,7 +974,10 @@ describe('The node_redis client', function () {
                     });
                     client.once('ready', function () {
                         client.set('foo', 'bar', function (err, res) {
-                            assert.strictEqual(err.message, 'Protocol error, got "a" as reply type byte');
+                            assert.strictEqual(err.message, 'Fatal error encountert. Command aborted. It might have been processed.');
+                            assert.strictEqual(err.code, 'NR_FATAL');
+                            assert(err instanceof redis.AbortError);
+                            error = err.origin;
                         });
                         // Fail the set answer. Has no corresponding command obj and will therefore land in the error handler and set
                         client.reply_parser.execute(new Buffer('a*1\r*1\r$1`zasd\r\na'));
@@ -974,7 +1022,7 @@ describe('The node_redis client', function () {
                         setTimeout(function () {
                             client.set('foo', 'bar', function (err, result) {
                                 if (!finished) done(err);
-                                assert.strictEqual(err.message, "The command can't be processed. The connection has already been closed.");
+                                assert.strictEqual(err.message, 'Connection forcefully ended and command aborted.');
                             });
 
                             setTimeout(function () {
@@ -993,10 +1041,15 @@ describe('The node_redis client', function () {
                         var i = 0;
 
                         client.on('error', function (err) {
-                            if (err.message === 'Redis connection in broken state: maximum connection attempts exceeded.') {
+                            if (err.code === 'CONNECTION_BROKEN') {
                                 assert(i, 3);
                                 assert.strictEqual(client.offline_queue.length, 0);
-                                done();
+                                assert.strictEqual(err.origin.code, 'ECONNREFUSED');
+                                if (!(err instanceof redis.AbortError)) {
+                                    done();
+                                } else {
+                                    assert.strictEqual(err.command, 'SET');
+                                }
                             } else {
                                 assert.equal(err.code, 'ECONNREFUSED');
                                 assert.equal(err.errno, 'ECONNREFUSED');

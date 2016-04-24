@@ -53,7 +53,7 @@ describe('connection tests', function () {
                 }
             });
             client.set('foo', 'bar', function (err, res) {
-                assert.strictEqual(err.message, 'Stream connection ended and running command aborted. It might have been processed.');
+                assert.strictEqual(err.message, 'Stream connection ended and command aborted.');
                 called = -1;
             });
         });
@@ -62,7 +62,7 @@ describe('connection tests', function () {
             var called = false;
             client = redis.createClient(9999);
             client.set('foo', 'bar', function (err, res) {
-                assert.strictEqual(err.message, 'Stream connection ended and running command aborted. It might have been processed.');
+                assert.strictEqual(err.message, 'Stream connection ended and command aborted.');
                 called = true;
             });
             var bool = client.quit(function (err, res) {
@@ -281,7 +281,8 @@ describe('connection tests', function () {
                         retryStrategy: function (options) {
                             if (options.totalRetryTime > 150) {
                                 client.set('foo', 'bar', function (err, res) {
-                                    assert.strictEqual(err.message, 'Connection timeout');
+                                    assert.strictEqual(err.message, 'Stream connection ended and command aborted.');
+                                    assert.strictEqual(err.origin.message, 'Connection timeout');
                                     done();
                                 });
                                 // Pass a individual error message to the error handler
@@ -308,7 +309,9 @@ describe('connection tests', function () {
                         retry_strategy: function (options) {
                             if (options.total_retry_time > 150) {
                                 client.set('foo', 'bar', function (err, res) {
-                                    assert.strictEqual(err.code, 'ECONNREFUSED');
+                                    assert.strictEqual(err.message, 'Stream connection ended and command aborted.');
+                                    assert.strictEqual(err.code, 'NR_CLOSED');
+                                    assert.strictEqual(err.origin.code, 'ECONNREFUSED');
                                     done();
                                 });
                                 return false;
@@ -330,9 +333,8 @@ describe('connection tests', function () {
                         client.stream.destroy();
                     }, 50);
                     client.on('error', function (err) {
-                        assert.strictEqual(err.code, 'NR_OFFLINE');
-                        assert.strictEqual(err.errors.length, 1);
-                        assert.notStrictEqual(err.message, err.errors[0].message);
+                        assert.strictEqual(err.code, 'NR_CLOSED');
+                        assert.strictEqual(err.message, 'Stream connection ended and command aborted.');
                         done();
                     });
                 });

@@ -137,6 +137,7 @@ are passed an object containing `delay` (in ms) and `attempt` (the attempt #) at
 ### "error"
 
 `client` will emit `error` when encountering an error connecting to the Redis server or when any other in node_redis occurs.
+If you do not use callbacks and unresolved commands get rejected node_redis is going to emit a error for those too.
 
 So please attach the error listener to node_redis.
 
@@ -292,6 +293,50 @@ client.get("foo_rand000000000000", function (err, reply) {
 ```
 
 `client.end()` without the flush parameter set to true should NOT be used in production!
+
+## Error handling (>= v.2.6)
+
+All redis errors are returned as `ReplyError`.
+All unresolved commands that get rejected due to what ever reason return a `AbortError`.
+As subclass of the `AbortError` a `AggregateError` exists. This is emitted in case multiple unresolved commands without callback got rejected.
+They are all aggregated and a single error is emitted in that case.
+
+Example:
+```js
+var redis = require('./');
+var assert = require('assert');
+var client = redis.createClient();
+
+client.on('error', function (err) {
+    assert(err instanceof Error);
+    assert(err instanceof redis.AbortError);
+    assert(err instanceof redis.AggregateError);
+    assert.strictEqual(err.errors.length, 2); // The set and get got aggregated in here
+    assert.strictEqual(err.code, 'NR_CLOSED');
+});
+client.set('foo', 123, 'bar', function (err, res) { // To many arguments
+console.log(err, res);
+    assert(err instanceof redis.ReplyError); // => true
+    assert.strictEqual(err.command, 'SET');
+    assert.deepStrictEqual(err.args, ['foo', 123, 'bar']);
+
+    client.set('foo', 'bar');
+    client.get('foo');
+    process.nextTick(function () {
+        client.end(true); // Force closing the connection while the command did not yet return
+    });
+});
+
+```
+
+Every `ReplyError` contains the `command` name in all-caps and the arguments (`args`).
+
+If node_redis emits a library error because of another error, the triggering error is added to the returned error as `origin` attribute.
+
+___Error codes___
+
+node_redis returns a `NR_CLOSED` error code if the clients connection dropped. If a command unresolved command got rejected a `UNERCTAIN_STATE` code is returned.
+A `CONNECTION_BROKEN` error code is used in case node_redis gives up to reconnect.
 
 ## client.unref()
 

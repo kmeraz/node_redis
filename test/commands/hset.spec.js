@@ -84,7 +84,7 @@ describe("The 'hset' method", function () {
             });
 
             afterEach(function () {
-                client.end(true);
+                client.end(false);
             });
         });
     });
