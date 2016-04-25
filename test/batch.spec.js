@@ -61,7 +61,7 @@ describe("The 'batch' method", function () {
                 });
 
                 afterEach(function () {
-                    client.end(true);
+                    client.end(false);
                 });
 
                 it('returns an empty array and keep the execution order in takt', function (done) {

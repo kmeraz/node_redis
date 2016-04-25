@@ -39,7 +39,7 @@ describe('rename commands', function () {
 
             afterEach(function () {
                 if (helper.redisProcess().spawnFailed()) return;
-                client.end(true);
+                client.end(false);
             });
 
             it('allows to use renamed functions', function (done) {

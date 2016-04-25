@@ -34,7 +34,7 @@ describe('The node_redis client', function () {
             var client;
 
             afterEach(function () {
-                client.end(true);
+                client.end(false);
             });
 
             describe('when connected', function () {

@@ -14,7 +14,7 @@ describe('connection tests', function () {
         client = null;
     });
     afterEach(function () {
-        client.end(true);
+        client.end(false);
     });
 
     it('unofficially support for a private stream', function () {

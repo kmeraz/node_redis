@@ -47,7 +47,7 @@ describe('TLS connection tests', function () {
 
     afterEach(function () {
         if (skip) return;
-        client.end(true);
+        client.end(false);
     });
 
     describe('on lost connection', function () {
